@@ -1,56 +1,117 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>Now Working</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<title>Notion Timer</title>
 
 <style>
-body {
-  margin: 0;
-  height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: #fff8fb;
-  font-family: sans-serif;
+body{
+  margin:0;
+  background:#111;
+  color:white;
+  font-family:sans-serif;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
 }
 
-#task {
-  font-size: 72px;
-  font-weight: bold;
-  color: #ff4d8d;
-  text-align: center;
-  padding: 20px 40px;
-  border-radius: 20px;
-  background: white;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-  animation: pop 0.5s ease;
+.timer{
+  text-align:center;
 }
 
-@keyframes pop {
-  0% { transform: scale(0.8); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+#time{
+  font-size:64px;
+  font-weight:bold;
+  letter-spacing:2px;
+}
+
+#status{
+  margin-top:12px;
+  font-size:14px;
+  opacity:.7;
 }
 </style>
-
 </head>
 <body>
 
-<div id="task">読み込み中...</div>
+<div class="timer">
+  <div id="time">00:00:00</div>
+  <div id="status">待機中</div>
+</div>
 
 <script>
-async function fetchTask() {
+const API_URL = "https://timer-nu-one.vercel.app/api/status";
+
+let startTime = null;
+let elapsed = 0;
+let interval = null;
+let running = false;
+
+const timeEl = document.getElementById("time");
+const statusEl = document.getElementById("status");
+
+function format(ms) {
+  const total = Math.floor(ms / 1000);
+
+  const h = String(Math.floor(total / 3600)).padStart(2, "0");
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const s = String(total % 60).padStart(2, "0");
+
+  return `${h}:${m}:${s}`;
+}
+
+function updateDisplay() {
+  const now = Date.now();
+  elapsed = now - startTime;
+
+  timeEl.textContent = format(elapsed);
+}
+
+function startTimer() {
+  if (running) return;
+
+  running = true;
+
+  startTime = Date.now() - elapsed;
+
+  interval = setInterval(updateDisplay, 1000);
+
+  statusEl.textContent = "作業中";
+}
+
+function stopTimer() {
+  if (!running) return;
+
+  running = false;
+
+  clearInterval(interval);
+
+  statusEl.textContent = "停止中";
+}
+
+async function checkNotion() {
   try {
-    const res = await fetch("/api/task");
+    const res = await fetch(API_URL);
     const data = await res.json();
-    document.getElementById("task").textContent = data.title;
+
+    if (data.running) {
+      startTimer();
+    } else {
+      stopTimer();
+    }
+
   } catch (e) {
-    document.getElementById("task").textContent = "エラー";
+    console.log(e);
+    statusEl.textContent = "接続エラー";
   }
 }
 
-fetchTask();
-setInterval(fetchTask, 10000); // 10秒更新
+checkNotion();
+
+setInterval(checkNotion, 5000);
 </script>
 
 </body>
