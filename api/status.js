@@ -47,17 +47,17 @@ module.exports = async function handler(req, res) {
 
       if (prop.type === "rich_text") {
 
-        if (prop.rich_text[0]) {
-          taskName = prop.rich_text[0].plain_text;
-        }
+        taskName = prop.rich_text
+          .map(item => item.plain_text)
+          .join("");
 
       }
 
       if (prop.type === "title") {
 
-        if (prop.title[0]) {
-          taskName = prop.title[0].plain_text;
-        }
+        taskName = prop.title
+          .map(item => item.plain_text)
+          .join("");
 
       }
 
