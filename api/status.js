@@ -40,12 +40,12 @@ module.exports = async function handler(req, res) {
     if (
       data.results &&
       data.results[0] &&
-      data.results[0].properties.Name &&
-      data.results[0].properties.Name.title &&
-      data.results[0].properties.Name.title[0]
+      data.results[0].properties["作業名"] &&
+      data.results[0].properties["作業名"].rich_text &&
+      data.results[0].properties["作業名"].rich_text[0]
     ) {
       taskName =
-        data.results[0].properties.Name.title[0].plain_text;
+        data.results[0].properties["作業名"].rich_text[0].plain_text;
     }
 
     return res.status(200).json({
