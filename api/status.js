@@ -35,8 +35,22 @@ module.exports = async function handler(req, res) {
 
     const data = await response.json();
 
+    let taskName = "";
+
+    if (
+      data.results &&
+      data.results[0] &&
+      data.results[0].properties.Name &&
+      data.results[0].properties.Name.title &&
+      data.results[0].properties.Name.title[0]
+    ) {
+      taskName =
+        data.results[0].properties.Name.title[0].plain_text;
+    }
+
     return res.status(200).json({
-      running: data.results && data.results.length > 0
+      running: data.results && data.results.length > 0,
+      task: taskName
     });
 
   } catch (e) {
