@@ -4,49 +4,81 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>NotionTimer</title>
+<title>Notion Timer</title>
 
 <style>
 body{
   margin:0;
-  background:#111;
-  color:white;
+  background:#d8f1ff;
   font-family:sans-serif;
   display:flex;
   justify-content:center;
   align-items:center;
   height:100vh;
+  color:#2b3a42;
 }
 
 .timer{
   text-align:center;
 }
 
+#task{
+  font-size:18px;
+  margin-bottom:12px;
+  opacity:.8;
+}
+
 #time{
-  font-size:64px;
+  font-size:72px;
   font-weight:bold;
   letter-spacing:2px;
 }
 
 #status{
   margin-top:10px;
-  opacity:.7;
   font-size:14px;
+  opacity:.6;
+}
+
+#reset{
+  margin-top:24px;
+  border:none;
+  background:white;
+  width:42px;
+  height:42px;
+  border-radius:999px;
+  font-size:18px;
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+  transition:.2s;
+}
+
+#reset:hover{
+  transform:scale(1.05);
 }
 </style>
 </head>
 <body>
 
 <div class="timer">
+
+  <div id="task">作業なし</div>
+
   <div id="time">00:00:00</div>
+
   <div id="status">待機中</div>
+
+  <button id="reset">↺</button>
+
 </div>
 
 <script>
-const API_URL = "https://notiontimer.vercel.app/api/status";
+const API_URL = "https://あなたのvercel.app/api/status";
 
 const timeEl = document.getElementById("time");
 const statusEl = document.getElementById("status");
+const taskEl = document.getElementById("task");
+const resetBtn = document.getElementById("reset");
 
 let running = false;
 let startTime = null;
@@ -95,17 +127,35 @@ function stopTimer(){
   statusEl.textContent = "停止中";
 }
 
-async function checkStatus(){
+resetBtn.addEventListener("click", () => {
+
+  elapsed = 0;
+
+  if(running){
+    startTime = Date.now();
+  }
+
+  timeEl.textContent = "00:00:00";
+});
+
+async function checkNotion(){
 
   try{
 
     const response = await fetch(API_URL);
+
     const data = await response.json();
 
     if(data.running){
       startTimer();
     }else{
       stopTimer();
+    }
+
+    if(data.task){
+      taskEl.textContent = data.task;
+    }else{
+      taskEl.textContent = "作業なし";
     }
 
   }catch(e){
@@ -116,9 +166,9 @@ async function checkStatus(){
   }
 }
 
-checkStatus();
+checkNotion();
 
-setInterval(checkStatus,5000);
+setInterval(checkNotion,5000);
 </script>
 
 </body>
