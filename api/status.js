@@ -28,8 +28,7 @@ module.exports = async function handler(req, res) {
     const data = await response.json();
 
     return res.status(200).json({
-      running: data.results && data.results.length > 0,
-      debug: data
+      running: data.results && data.results.length > 0
     });
 
   } catch (e) {
