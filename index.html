@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Notion Timer</title>
 
@@ -29,9 +29,9 @@ body{
 }
 
 #status{
-  margin-top:12px;
-  font-size:14px;
+  margin-top:10px;
   opacity:.7;
+  font-size:14px;
 }
 </style>
 </head>
@@ -43,75 +43,82 @@ body{
 </div>
 
 <script>
-const API_URL = "https://timer-nu-one.vercel.app/api/status";
-
-let startTime = null;
-let elapsed = 0;
-let interval = null;
-let running = false;
+const API_URL = "https://notiontimer.vercel.app/api/status";
 
 const timeEl = document.getElementById("time");
 const statusEl = document.getElementById("status");
 
-function format(ms) {
+let running = false;
+let startTime = null;
+let elapsed = 0;
+let timerInterval = null;
+
+function format(ms){
+
   const total = Math.floor(ms / 1000);
 
-  const h = String(Math.floor(total / 3600)).padStart(2, "0");
-  const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
-  const s = String(total % 60).padStart(2, "0");
+  const h = String(Math.floor(total / 3600)).padStart(2,"0");
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2,"0");
+  const s = String(total % 60).padStart(2,"0");
 
   return `${h}:${m}:${s}`;
 }
 
-function updateDisplay() {
-  const now = Date.now();
-  elapsed = now - startTime;
+function updateTimer(){
+
+  elapsed = Date.now() - startTime;
 
   timeEl.textContent = format(elapsed);
 }
 
-function startTimer() {
-  if (running) return;
+function startTimer(){
+
+  if(running) return;
 
   running = true;
 
   startTime = Date.now() - elapsed;
 
-  interval = setInterval(updateDisplay, 1000);
+  timerInterval = setInterval(updateTimer,1000);
 
   statusEl.textContent = "作業中";
 }
 
-function stopTimer() {
-  if (!running) return;
+function stopTimer(){
+
+  if(!running) return;
 
   running = false;
 
-  clearInterval(interval);
+  clearInterval(timerInterval);
 
   statusEl.textContent = "停止中";
 }
 
-async function checkNotion() {
-  try {
-    const res = await fetch(API_URL);
-    const data = await res.json();
+async function checkStatus(){
 
-    if (data.running) {
+  try{
+
+    const response = await fetch(API_URL);
+    const data = await response.json();
+
+    if(data.running){
       startTimer();
-    } else {
+    }else{
       stopTimer();
     }
 
-  } catch (e) {
+  }catch(e){
+
     console.log(e);
+
     statusEl.textContent = "接続エラー";
   }
 }
 
-checkNotion();
+checkStatus();
 
-setInterval(checkNotion, 5000);
+setInterval(checkStatus,5000);
 </script>
 
 </body>
