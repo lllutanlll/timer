@@ -40,12 +40,27 @@ module.exports = async function handler(req, res) {
     if (
       data.results &&
       data.results[0] &&
-      data.results[0].properties["作業名"] &&
-      data.results[0].properties["作業名"].rich_text &&
-      data.results[0].properties["作業名"].rich_text[0]
+      data.results[0].properties["作業名"]
     ) {
-      taskName =
-        data.results[0].properties["作業名"].rich_text[0].plain_text;
+
+      const prop = data.results[0].properties["作業名"];
+
+      if (prop.type === "rich_text") {
+
+        if (prop.rich_text[0]) {
+          taskName = prop.rich_text[0].plain_text;
+        }
+
+      }
+
+      if (prop.type === "title") {
+
+        if (prop.title[0]) {
+          taskName = prop.title[0].plain_text;
+        }
+
+      }
+
     }
 
     return res.status(200).json({
