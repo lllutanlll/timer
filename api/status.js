@@ -2,8 +2,8 @@ module.exports = async function handler(req, res) {
 
   try {
 
-    const databaseId = process.env.35578bf6192b803582efd15d81ad6745;
-    const token = process.env.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;
+    const databaseId = process.env.DATABASE_ID;
+    const token = process.env.NOTION_TOKEN;
 
     const response = await fetch(
       "https://api.notion.com/v1/databases/" + databaseId + "/query",
@@ -28,7 +28,8 @@ module.exports = async function handler(req, res) {
     const data = await response.json();
 
     return res.status(200).json({
-      running: data.results && data.results.length > 0
+      running: data.results && data.results.length > 0,
+      debug: data
     });
 
   } catch (e) {
