@@ -9,23 +9,25 @@
 <style>
 body{
   margin:0;
-  background:#d8f1ff;
+  background:#A8C9D2;
   font-family:sans-serif;
   display:flex;
   justify-content:center;
   align-items:center;
   height:100vh;
-  color:#2b3a42;
+  color:white;
+  overflow:hidden;
 }
 
 .timer{
   text-align:center;
+  position:relative;
 }
 
 #task{
   font-size:18px;
-  margin-bottom:12px;
-  opacity:.8;
+  margin-bottom:14px;
+  opacity:.9;
 }
 
 #time{
@@ -36,25 +38,28 @@ body{
 
 #status{
   margin-top:10px;
-  font-size:14px;
-  opacity:.6;
+  font-size:13px;
+  opacity:.7;
 }
 
 #reset{
-  margin-top:24px;
+  position:fixed;
+  right:16px;
+  bottom:16px;
   border:none;
-  background:white;
-  width:42px;
-  height:42px;
+  background:rgba(255,255,255,.15);
+  color:white;
+  width:32px;
+  height:32px;
   border-radius:999px;
-  font-size:18px;
+  font-size:14px;
   cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.08);
+  backdrop-filter:blur(4px);
   transition:.2s;
 }
 
 #reset:hover{
-  transform:scale(1.05);
+  background:rgba(255,255,255,.25);
 }
 </style>
 </head>
@@ -68,9 +73,9 @@ body{
 
   <div id="status">待機中</div>
 
-  <button id="reset">↺</button>
-
 </div>
+
+<button id="reset">↺</button>
 
 <script>
 const API_URL = "https://notiontimer.vercel.app/api/status";
