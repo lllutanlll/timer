@@ -157,7 +157,11 @@ async function checkNotion(){
 
   try{
 
-    const response = await fetch(API_URL);
+const response = await fetch(API_URL, {
+  headers: {
+    "x-api-key": "mjynhdbtjc57"
+  }
+});
 
     const data = await response.json();
 
