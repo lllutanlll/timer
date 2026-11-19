@@ -1,10 +1,11 @@
-// Notion Timer /api/status 修正版 v3
+// Notion Timer /api/status 修正版 v3.1
 
 const PROP_STATE = "現在作業中";
 const PROP_TASK = "作業名";
 const REC_START = "作業開始時刻";
 const REC_END = "作業終了時刻";
 const REC_TASK = "作業名";
+const REC_PRECISE = "タイマー計測";
 const RESET_TASK_NAME = "タイマーリセット";
 
 function notionHeaders(token) {
@@ -58,6 +59,39 @@ function dateMs(prop) {
     return Number.isNaN(t) ? null : t;
   }
   return null;
+}
+
+// 「タイマー計測」テキスト（例: s=1730000000000;e=1730003600000）を読む
+function parsePrecise(page) {
+  const prop = page.properties && page.properties[REC_PRECISE];
+  const result = { s: null, e: null };
+  if (!prop || prop.type !== "rich_text") return result;
+  const text = (prop.rich_text || []).map(item => item.plain_text || "").join("");
+  const ms = text.match(/s=(\d+)/);
+  const me = text.match(/e=(\d+)/);
+  if (ms) result.s = parseInt(ms[1], 10);
+  if (me) result.e = parseInt(me[1], 10);
+  return result;
+}
+
+async function writePrecise(token, pageId, precise) {
+  let text = "";
+  if (precise.s !== null) text += "s=" + precise.s;
+  if (precise.e !== null) text += (text ? ";" : "") + "e=" + precise.e;
+  try {
+    const response = await fetch("https://api.notion.com/v1/pages/" + pageId, {
+      method: "PATCH",
+      headers: notionHeaders(token),
+      body: JSON.stringify({
+        properties: {
+          [REC_PRECISE]: { rich_text: [{ text: { content: text } }] }
+        }
+      })
+    });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -141,10 +175,11 @@ module.exports = async function handler(req, res) {
 
     // リセット以降のレコードを合計する
     const records = await queryAllSince(token, recordDatabaseId, resetMs);
+    const now = Date.now();
 
     let totalMs = 0;
     let lastTask = "";
-    let openStartMs = null;
+    let openRecord = null;
 
     for (const r of records) {
       const task = titleText(r.properties[REC_TASK]);
@@ -155,21 +190,42 @@ module.exports = async function handler(req, res) {
       if (s === null) continue;
 
       lastTask = task;
+      const precise = parsePrecise(r);
 
-      if (e !== null && e > s) {
-        totalMs += e - s; // 終了済みの区間
-      } else if (runningRow && task === runningTask) {
-        // 作業中の区間（開始＝終了で入っている未終了レコード）
-        openStartMs = s;
+      if (runningRow && task === runningTask && (e === null || e <= s)) {
+        // 作業中の区間（開始＝終了で入っている未終了レコード）の候補。
+        // 複数ある場合は最後のものを使う
+        openRecord = { page: r, precise: precise, dateStart: s };
+      } else {
+        // 終了済みの区間（開始と終了が同じ分の短い区間も含む）
+        if (precise.s !== null && precise.e !== null) {
+          totalMs += Math.max(0, precise.e - precise.s);
+        } else if (precise.s !== null && now - Date.parse(r.last_edited_time) < 120000) {
+          // 開いている間に始まって、さっき終わった区間:
+          // 終わりの精密時刻を記録して、秒まで数える
+          const ok = await writePrecise(token, r.id, { s: precise.s, e: now });
+          totalMs += ok ? Math.max(0, now - precise.s) : Math.max(0, (e || s) - s);
+        } else {
+          totalMs += Math.max(0, (e || s) - s);
+        }
       }
     }
 
-    if (openStartMs !== null) {
-      totalMs += Math.max(0, Date.now() - openStartMs);
+    if (openRecord) {
+      if (openRecord.precise.s !== null) {
+        totalMs += Math.max(0, now - openRecord.precise.s);
+      } else {
+        // 初めて見る区間: 精密な開始時刻を記録する（誤差は同期間隔＝数秒程度）
+        const ok = await writePrecise(token, openRecord.page.id, { s: now, e: null });
+        if (!ok) {
+          // 書き込めない場合は従来通り分単位で数える
+          totalMs += Math.max(0, now - openRecord.dateStart);
+        }
+      }
     } else if (runningRow) {
       // 未終了レコードが見つからない場合の代用:
       // 総合作業管理DBの行の最終更新時刻から数える
-      totalMs += Math.max(0, Date.now() - Date.parse(runningRow.last_edited_time));
+      totalMs += Math.max(0, now - Date.parse(runningRow.last_edited_time));
     }
 
     return res.status(200).json({
