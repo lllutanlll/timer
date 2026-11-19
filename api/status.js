@@ -1,4 +1,4 @@
-// Notion Timer /api/status 修正版 v3.3
+// Notion Timer /api/status 修正版 v3.4
 
 const PROP_STATE = "現在作業中";
 const PROP_TASK = "作業名";
@@ -225,7 +225,6 @@ module.exports = async function handler(req, res) {
       const e = dateMs(r.properties[REC_END]);
       if (s === null) continue;
 
-      lastTask = task;
       const precise = parsePrecise(r);
 
       if (runningRow && (e === null || e <= s) && precise.e === null) {
@@ -237,15 +236,21 @@ module.exports = async function handler(req, res) {
         });
       } else {
         // 終了済みの区間（開始と終了が同じ分の短い区間も含む）
+        let segMs = 0;
         if (precise.s !== null && precise.e !== null) {
-          totalMs += Math.max(0, precise.e - clampStart(precise.s));
+          segMs = Math.max(0, precise.e - clampStart(precise.s));
         } else if (precise.s !== null && (boundaryMs === null || precise.s >= boundaryMs) && now - Date.parse(r.last_edited_time) < 120000) {
           // 開いている間に始まって、さっき終わった区間:
           // 終わりの精密時刻を記録して、秒まで数える
           const ok = await writePrecise(token, r.id, { s: precise.s, e: now });
-          totalMs += ok ? Math.max(0, now - precise.s) : Math.max(0, (e || s) - clampStart(s));
+          segMs = ok ? Math.max(0, now - precise.s) : Math.max(0, (e || s) - clampStart(s));
         } else {
-          totalMs += Math.max(0, (e || s) - clampStart(s));
+          segMs = Math.max(0, (e || s) - clampStart(s));
+        }
+        // 合計に実際に入った区間だけを「最後の作業」とする
+        if (segMs > 0) {
+          totalMs += segMs;
+          lastTask = task;
         }
       }
     }
@@ -255,6 +260,7 @@ module.exports = async function handler(req, res) {
       const matched = openCandidates.filter(c => c.taskN === runningN);
       const pool = matched.length > 0 ? matched : openCandidates;
       openRecord = pool.reduce((a, b) => (b.created >= a.created ? b : a));
+      lastTask = titleText(openRecord.page.properties[REC_TASK]);
     }
 
     if (openRecord) {
@@ -277,7 +283,8 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       running: !!runningRow,
       stopped: !runningRow && totalMs > 0,
-      task: runningRow ? runningTask : lastTask,
+      // 合計が 0 の時は作業名を返さない（画面が「作業なし」になる）
+      task: runningRow ? runningTask : (totalMs > 0 ? normName(lastTask) : ""),
       elapsedSeconds: Math.floor(totalMs / 1000),
       resetAt: boundaryMs ? new Date(boundaryMs).toISOString() : null
     });
