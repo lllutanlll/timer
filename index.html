@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=MPLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
 
 <style>
 body{
@@ -71,34 +71,68 @@ body{
 #reset:hover{
   background:rgba(255,255,255,.25);
 }
+
+#pip{
+  position:fixed;
+  right:56px;
+  bottom:16px;
+  border:none;
+  background:rgba(255,255,255,.15);
+  color:white;
+  width:32px;
+  height:32px;
+  padding:0;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  backdrop-filter:blur(4px);
+  transition:.2s;
+}
+
+#pip:hover{
+  background:rgba(255,255,255,.25);
+}
 </style>
 </head>
 <body>
 
-<div class="timer">
+<div id="wrap">
+  <div class="timer" id="timerBox">
 
-  <div id="task">作業なし</div>
+    <div id="task">作業なし</div>
 
-  <div id="time">00:00:00</div>
+    <div id="time">00:00:00</div>
 
-  <div id="status">待機中</div>
+    <div id="status">待機中</div>
 
+  </div>
 </div>
 
-<button id="reset">↺</button>
+<button id="reset" title="リセット（合計を0にする）">↺</button>
+<button id="pip" title="小さな窓で常に手前に表示" aria-label="小さな窓で常に手前に表示"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" fill="currentColor" stroke="none"/></svg></button>
 
 <script>
 const API_URL = "https://notiontimer.vercel.app/api/status";
+const API_KEY = "mjynhdbtjc57";
 
 const timeEl = document.getElementById("time");
 const statusEl = document.getElementById("status");
 const taskEl = document.getElementById("task");
 const resetBtn = document.getElementById("reset");
+const pipBtn = document.getElementById("pip");
+const wrapEl = document.getElementById("wrap");
+const timerBox = document.getElementById("timerBox");
 
+// 表示する時間は「最後にリセットしてからの合計」。
+// 合計はサーバー（作業記録DB）から受け取り、画面側は表示だけを進める。
+// 同期のたびにサーバー値で上書きされるので、
+// 再読み込み・再起動・端末変更・日またぎでも合計は消えない。
 let running = false;
-let startTime = null;
-let elapsed = 0;
-let timerInterval = null;
+let hasTotal = false;
+let baseElapsedMs = 0;   // サーバーから受け取った合計
+let baseAt = Date.now(); // それを受け取った時刻
 
 function format(ms){
 
@@ -111,71 +145,130 @@ function format(ms){
   return `${h}:${m}:${s}`;
 }
 
-function updateTimer(){
-
-  elapsed = Date.now() - startTime;
-
-  timeEl.textContent = format(elapsed);
-}
-
-function startTimer(){
-
-  if(running) return;
-
-  running = true;
-
-  startTime = Date.now() - elapsed;
-
-  timerInterval = setInterval(updateTimer,1000);
-
-  statusEl.textContent = "作業中";
-}
-
-function stopTimer(){
-
-  if(!running) return;
-
-  running = false;
-
-  clearInterval(timerInterval);
-
-  statusEl.textContent = "停止中";
-}
-
-resetBtn.addEventListener("click", () => {
-
-  elapsed = 0;
-
+function currentElapsedMs(){
   if(running){
-    startTime = Date.now();
+    return baseElapsedMs + (Date.now() - baseAt);
+  }
+  return baseElapsedMs;
+}
+
+function render(){
+  timeEl.textContent = format(currentElapsedMs());
+}
+
+setInterval(render, 250);
+
+resetBtn.addEventListener("click", async () => {
+
+  // 合計を 0 にする唯一の操作。
+  // サーバー側（作業記録DB）にリセットの記録を残してから 0 にする。
+  // 記録できない場合は表示を変えない（変えると次の同期で戻ってしまうため）。
+  try{
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ action: "reset" })
+    });
+
+    const data = await response.json();
+
+    if(!response.ok || !data.ok){
+      statusEl.textContent = "リセットを記録できませんでした";
+      return;
+    }
+
+    baseElapsedMs = 0;
+    baseAt = Date.now();
+    hasTotal = false;
+    render();
+    checkNotion();
+
+  }catch(e){
+    console.log(e);
+    statusEl.textContent = "リセットを記録できませんでした";
+  }
+});
+
+// ---- 小窓（ピクチャインピクチャ） ----
+// Chrome / Edge の Document Picture-in-Picture で、
+// タイマーだけを常に手前に出る小さな窓に移す。
+// 対応していない場合は、小さな別ウィンドウでタイマーを開く
+// （サーバーと同期するので、そちらにも同じ合計が出る）。
+pipBtn.addEventListener("click", async () => {
+
+  if("documentPictureInPicture" in window){
+    try{
+      const pipWindow = await window.documentPictureInPicture.requestWindow({
+        width: 360,
+        height: 210
+      });
+
+      // フォントとスタイルを小窓側にも入れる（元のタイマーと同じフォント）
+      const fontLink = pipWindow.document.createElement("link");
+      fontLink.rel = "stylesheet";
+      fontLink.href = "https://fonts.googleapis.com/css2?family=Press+Start+2P&family=M+PLUS+Rounded+1c:wght@700&display=swap";
+      pipWindow.document.head.appendChild(fontLink);
+
+      const style = pipWindow.document.createElement("style");
+      style.textContent = document.querySelector("style").textContent +
+        "\n#task{font-size:20px;margin-bottom:10px;}" +
+        "\n#time{font-size:36px;}" +
+        "\n#status{margin-top:10px;}";
+      pipWindow.document.head.appendChild(style);
+
+      pipWindow.document.body.appendChild(timerBox);
+
+      pipWindow.addEventListener("pagehide", () => {
+        wrapEl.appendChild(timerBox);
+      });
+
+      return;
+    }catch(e){
+      console.log(e);
+    }
   }
 
-  timeEl.textContent = "00:00:00";
+  window.open(API_URL.replace("/api/status", "/"), "_blank", "width=360,height=220,menubar=no,toolbar=no,location=no");
 });
 
 async function checkNotion(){
 
   try{
 
-const response = await fetch(API_URL, {
-  headers: {
-    "x-api-key": "mjynhdbtjc57"
-  }
-});
+    const response = await fetch(API_URL, {
+      headers: {
+        "x-api-key": API_KEY
+      }
+    });
 
     const data = await response.json();
 
-    if(data.running){
-      startTimer();
-    }else{
-      stopTimer();
+    if(typeof data.elapsedSeconds === "number"){
+      baseElapsedMs = data.elapsedSeconds * 1000;
+      baseAt = Date.now();
+      hasTotal = data.elapsedSeconds > 0;
     }
+
+    running = !!data.running;
 
     if(data.task){
       taskEl.textContent = data.task;
-    }else{
+    }else if(!hasTotal){
       taskEl.textContent = "作業なし";
     }
+
+    if(data.running){
+      statusEl.textContent = "作業中";
+    }else if(data.stopped || hasTotal){
+      statusEl.textContent = "一時停止中（合計は保持）";
+    }else{
+      statusEl.textContent = "待機中";
+    }
+
+    render();
 
   }catch(e){
 
