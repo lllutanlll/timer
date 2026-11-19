@@ -1,4 +1,4 @@
-// Notion Timer /api/status 修正版 v3.2（累積表示＋秒の精密化）
+// Notion Timer /api/status 修正版 v3.3
 
 const PROP_STATE = "現在作業中";
 const PROP_TASK = "作業名";
@@ -132,7 +132,8 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: "RECORD_DATABASE_ID is not set" });
       }
 
-      const nowIso = new Date().toISOString();
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
       const createRes = await fetch("https://api.notion.com/v1/pages", {
         method: "POST",
         headers: notionHeaders(token),
@@ -141,14 +142,32 @@ module.exports = async function handler(req, res) {
           properties: {
             [REC_TASK]: { title: [{ text: { content: RESET_TASK_NAME } }] },
             [REC_START]: { date: { start: nowIso } },
-            [REC_END]: { date: { start: nowIso } }
+            [REC_END]: { date: { start: nowIso } },
+            // リセットした瞬間を秒単位でも残す（区切りの判定に使う）
+            [REC_PRECISE]: { rich_text: [{ text: { content: "s=" + nowMs } }] }
           }
         })
       });
-      const created = await createRes.json();
+      let created = await createRes.json();
       if (!createRes.ok) {
-        // インテグレーションに挿入権限がない場合など
-        return res.status(502).json({ error: "reset record failed", detail: created });
+        // 「タイマー計測」項目がない等で失敗した場合は、それ無しで作り直す
+        const retryRes = await fetch("https://api.notion.com/v1/pages", {
+          method: "POST",
+          headers: notionHeaders(token),
+          body: JSON.stringify({
+            parent: { database_id: recordDatabaseId },
+            properties: {
+              [REC_TASK]: { title: [{ text: { content: RESET_TASK_NAME } }] },
+              [REC_START]: { date: { start: nowIso } },
+              [REC_END]: { date: { start: nowIso } }
+            }
+          })
+        });
+        created = await retryRes.json();
+        if (!retryRes.ok) {
+          // インテグレーションに挿入権限がない場合など
+          return res.status(502).json({ error: "reset record failed", detail: created });
+        }
       }
       return res.status(200).json({ ok: true, resetAt: nowIso });
     }
@@ -169,14 +188,25 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // 最新のリセット記録を探す
+    // 最新のリセット記録を探す（同じ分に複数ある場合は、
+    // 秒単位の時刻が一番新しいものを区切りにする）
     const resetData = await queryDb(token, recordDatabaseId, {
       filter: { property: REC_TASK, title: { equals: RESET_TASK_NAME } },
       sorts: [{ timestamp: "created_time", direction: "descending" }],
-      page_size: 1
+      page_size: 5
     });
-    const resetRow = resetData.results && resetData.results[0];
-    const resetMs = resetRow ? dateMs(resetRow.properties[REC_START]) : null;
+    let resetMs = null;    // 印の分単位の開始（レコード取得範囲の決定用）
+    let boundaryMs = null; // 秒単位の区切り（精密な時刻があればそれを使う）
+    for (const row of (resetData.results || [])) {
+      const p = parsePrecise(row);
+      const b = p.s !== null ? p.s : dateMs(row.properties[REC_START]);
+      if (b !== null && (boundaryMs === null || b > boundaryMs)) {
+        boundaryMs = b;
+        resetMs = dateMs(row.properties[REC_START]);
+      }
+    }
+    // 区間はリセットした瞬間より前を数えない
+    const clampStart = (x) => boundaryMs ? Math.max(x, boundaryMs) : x;
 
     // リセット以降のレコードを合計する
     const records = await queryAllSince(token, recordDatabaseId, resetMs);
@@ -208,14 +238,14 @@ module.exports = async function handler(req, res) {
       } else {
         // 終了済みの区間（開始と終了が同じ分の短い区間も含む）
         if (precise.s !== null && precise.e !== null) {
-          totalMs += Math.max(0, precise.e - precise.s);
-        } else if (precise.s !== null && now - Date.parse(r.last_edited_time) < 120000) {
+          totalMs += Math.max(0, precise.e - clampStart(precise.s));
+        } else if (precise.s !== null && (boundaryMs === null || precise.s >= boundaryMs) && now - Date.parse(r.last_edited_time) < 120000) {
           // 開いている間に始まって、さっき終わった区間:
           // 終わりの精密時刻を記録して、秒まで数える
           const ok = await writePrecise(token, r.id, { s: precise.s, e: now });
-          totalMs += ok ? Math.max(0, now - precise.s) : Math.max(0, (e || s) - s);
+          totalMs += ok ? Math.max(0, now - precise.s) : Math.max(0, (e || s) - clampStart(s));
         } else {
-          totalMs += Math.max(0, (e || s) - s);
+          totalMs += Math.max(0, (e || s) - clampStart(s));
         }
       }
     }
@@ -229,13 +259,13 @@ module.exports = async function handler(req, res) {
 
     if (openRecord) {
       if (openRecord.precise.s !== null) {
-        totalMs += Math.max(0, now - openRecord.precise.s);
+        totalMs += Math.max(0, now - clampStart(openRecord.precise.s));
       } else {
         // 初めて見る区間: 精密な開始時刻を記録する（誤差は同期間隔＝数秒程度）
         const ok = await writePrecise(token, openRecord.page.id, { s: now, e: null });
         if (!ok) {
           // 書き込めない場合は従来通り分単位で数える
-          totalMs += Math.max(0, now - openRecord.dateStart);
+          totalMs += Math.max(0, now - clampStart(openRecord.dateStart));
         }
       }
     } else if (runningRow) {
@@ -249,7 +279,7 @@ module.exports = async function handler(req, res) {
       stopped: !runningRow && totalMs > 0,
       task: runningRow ? runningTask : lastTask,
       elapsedSeconds: Math.floor(totalMs / 1000),
-      resetAt: resetMs ? new Date(resetMs).toISOString() : null
+      resetAt: boundaryMs ? new Date(boundaryMs).toISOString() : null
     });
 
   } catch (e) {
