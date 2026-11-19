@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Notion Timer</title>
+<title>Timer</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -190,6 +190,8 @@ resetBtn.addEventListener("click", async () => {
     hasTotal = false;
     maxShownMs = 0;
     guardResetAt = undefined;
+    taskEl.textContent = "作業なし";
+    statusEl.textContent = "待機中";
     render();
     checkNotion();
 
