@@ -133,6 +133,11 @@ let running = false;
 let hasTotal = false;
 let baseElapsedMs = 0;   // サーバーから受け取った合計
 let baseAt = Date.now(); // それを受け取った時刻
+// 表示が後戻りしないためのガード:
+// Notionの時刻は分単位なので、サーバーの合計が表示より小さく戻ることがある。
+// 同じリセット区間の中では、表示した最大値より小さくしない。
+let maxShownMs = 0;
+let guardResetAt = undefined;
 
 function format(ms){
 
@@ -183,6 +188,8 @@ resetBtn.addEventListener("click", async () => {
     baseElapsedMs = 0;
     baseAt = Date.now();
     hasTotal = false;
+    maxShownMs = 0;
+    guardResetAt = undefined;
     render();
     checkNotion();
 
@@ -247,9 +254,16 @@ async function checkNotion(){
     const data = await response.json();
 
     if(typeof data.elapsedSeconds === "number"){
-      baseElapsedMs = data.elapsedSeconds * 1000;
+      // リセット区間が変わったらガードを解除する
+      if(data.resetAt !== guardResetAt){
+        guardResetAt = data.resetAt;
+        maxShownMs = 0;
+      }
+      const serverMs = data.elapsedSeconds * 1000;
+      if(serverMs > maxShownMs) maxShownMs = serverMs;
+      baseElapsedMs = maxShownMs;
       baseAt = Date.now();
-      hasTotal = data.elapsedSeconds > 0;
+      hasTotal = data.elapsedSeconds > 0 || maxShownMs > 0;
     }
 
     running = !!data.running;
@@ -263,7 +277,7 @@ async function checkNotion(){
     if(data.running){
       statusEl.textContent = "作業中";
     }else if(data.stopped || hasTotal){
-      statusEl.textContent = "一時停止中（合計は保持）";
+      statusEl.textContent = "一時停止中";
     }else{
       statusEl.textContent = "待機中";
     }
