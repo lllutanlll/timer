@@ -1,4 +1,4 @@
-// Notion Timer /api/status 修正版 v3.1
+// Notion Timer /api/status 修正版 v3.2（累積表示＋秒の精密化）
 
 const PROP_STATE = "現在作業中";
 const PROP_TASK = "作業名";
@@ -51,6 +51,11 @@ function titleText(prop) {
   if (!prop) return "";
   const list = prop.type === "title" ? prop.title : prop.type === "rich_text" ? prop.rich_text : [];
   return (list || []).map(item => item.plain_text || "").join("");
+}
+
+// 名前比較用: 前後の空白を取り除く（記録DB側の名前に末尾空白があるため）
+function normName(s) {
+  return (s || "").trim();
 }
 
 function dateMs(prop) {
@@ -180,10 +185,11 @@ module.exports = async function handler(req, res) {
     let totalMs = 0;
     let lastTask = "";
     let openRecord = null;
+    const openCandidates = [];
 
     for (const r of records) {
       const task = titleText(r.properties[REC_TASK]);
-      if (task === RESET_TASK_NAME) continue;
+      if (normName(task) === RESET_TASK_NAME) continue;
 
       const s = dateMs(r.properties[REC_START]);
       const e = dateMs(r.properties[REC_END]);
@@ -192,10 +198,13 @@ module.exports = async function handler(req, res) {
       lastTask = task;
       const precise = parsePrecise(r);
 
-      if (runningRow && task === runningTask && (e === null || e <= s)) {
+      if (runningRow && (e === null || e <= s) && precise.e === null) {
         // 作業中の区間（開始＝終了で入っている未終了レコード）の候補。
-        // 複数ある場合は最後のものを使う
-        openRecord = { page: r, precise: precise, dateStart: s };
+        // 名前が一致するものを優先し、決め方はループ後に行う
+        openCandidates.push({
+          page: r, precise: precise, dateStart: s,
+          taskN: normName(task), created: Date.parse(r.created_time) || 0
+        });
       } else {
         // 終了済みの区間（開始と終了が同じ分の短い区間も含む）
         if (precise.s !== null && precise.e !== null) {
@@ -209,6 +218,13 @@ module.exports = async function handler(req, res) {
           totalMs += Math.max(0, (e || s) - s);
         }
       }
+    }
+
+    if (openCandidates.length > 0) {
+      const runningN = normName(runningTask);
+      const matched = openCandidates.filter(c => c.taskN === runningN);
+      const pool = matched.length > 0 ? matched : openCandidates;
+      openRecord = pool.reduce((a, b) => (b.created >= a.created ? b : a));
     }
 
     if (openRecord) {
